@@ -3,130 +3,137 @@ import { Transaction, FinancialSummary } from '@/types/finance';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
+function getAuthHeaders() {
+  const token = localStorage.getItem('token');
+  return {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+}
+
 export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch transactions from backend
   const fetchTransactions = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
       const token = localStorage.getItem('token');
-
       if (!token) {
-        console.warn('No token found. User not authenticated.');
         setTransactions([]);
-        setIsLoading(false);
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/transactions`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+      // Fetch all transactions (increase limit so dashboard shows everything)
+      const response = await fetch(`${API_BASE_URL}/transactions?limit=100`, {
+        headers: getAuthHeaders(),
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch transactions: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error('Failed to fetch transactions');
 
       const data = await response.json();
-      console.log('Fetched transactions:', data);
-      
-      // Convert date strings to proper format for the frontend
-      const formattedTransactions = (data.data?.transactions || []).map((t: any) => ({
-        ...t,
+
+      // Backend returns: { success, data: { transactions: [], pagination: {} } }
+      const raw = data.data?.transactions ?? [];
+
+      const formatted: Transaction[] = raw.map((t: any) => ({
         id: t._id || t.id,
-        date: t.date ? new Date(t.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        type: t.type,
+        amount: t.amount,
+        category: t.category,
+        description: t.description || '',
+        // Normalize date to YYYY-MM-DD always
+        date: t.date
+          ? new Date(t.date).toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0],
         createdAt: t.createdAt || new Date().toISOString(),
       }));
 
-      setTransactions(formattedTransactions);
+      setTransactions(formatted);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch transactions';
-      console.error('Error fetching transactions:', errorMsg);
-      setError(errorMsg);
+      const msg = err instanceof Error ? err.message : 'Failed to fetch transactions';
+      console.error(msg);
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Fetch transactions on mount
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
 
-  const addTransaction = useCallback(async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
-    try {
-      const token = localStorage.getItem('token');
+  const addTransaction = useCallback(
+    async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
+      try {
+        setError(null);
+        const response = await fetch(`${API_BASE_URL}/transactions`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            type: transaction.type,
+            amount: transaction.amount,
+            category: transaction.category,
+            description: transaction.description || '',
+            date: transaction.date
+              ? new Date(transaction.date).toISOString()  // Convert to full ISO for backend
+              : new Date().toISOString(),
+          }),
+        });
 
-      if (!token) {
-        setError('User not authenticated');
-        return;
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.message || 'Failed to add transaction');
+        }
+
+        const data = await response.json();
+        const saved = data.data;
+
+        // Optimistic update — add to top of list immediately
+        const newTransaction: Transaction = {
+          id: saved._id || saved.id,
+          type: saved.type,
+          amount: saved.amount,
+          category: saved.category,
+          description: saved.description || '',
+          date: new Date(saved.date).toISOString().split('T')[0],
+          createdAt: saved.createdAt || new Date().toISOString(),
+        };
+
+        setTransactions((prev) => [newTransaction, ...prev]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to add transaction';
+        console.error(msg);
+        setError(msg);
+        throw err; // Re-throw so TransactionForm knows it failed
       }
-
-      const response = await fetch(`${API_BASE_URL}/transactions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...transaction,
-          date: transaction.date || new Date().toISOString().split('T')[0],
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to add transaction');
-      }
-
-      const data = await response.json();
-      console.log('Transaction added:', data);
-      
-      // Refresh transactions list
-      await fetchTransactions();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to add transaction';
-      console.error('Error adding transaction:', errorMsg);
-      setError(errorMsg);
-    }
-  }, [fetchTransactions]);
+    },
+    []
+  );
 
   const deleteTransaction = useCallback(async (id: string) => {
     try {
-      const token = localStorage.getItem('token');
+      setError(null);
 
-      if (!token) {
-        setError('User not authenticated');
-        return;
-      }
+      // Optimistic remove
+      setTransactions((prev) => prev.filter((t) => t.id !== id));
 
       const response = await fetch(`${API_BASE_URL}/transactions/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
+        // Rollback by re-fetching if delete failed
+        await fetchTransactions();
         throw new Error('Failed to delete transaction');
       }
-
-      console.log('Transaction deleted:', id);
-      
-      // Refresh transactions list
-      await fetchTransactions();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to delete transaction';
-      console.error('Error deleting transaction:', errorMsg);
-      setError(errorMsg);
+      const msg = err instanceof Error ? err.message : 'Failed to delete transaction';
+      console.error(msg);
+      setError(msg);
     }
   }, [fetchTransactions]);
 
@@ -134,15 +141,16 @@ export function useTransactions() {
     const totalIncome = transactions
       .filter((t) => t.type === 'income')
       .reduce((sum, t) => sum + t.amount, 0);
-    
+
     const totalExpenses = transactions
       .filter((t) => t.type === 'expense')
       .reduce((sum, t) => sum + t.amount, 0);
 
     const netBalance = totalIncome - totalExpenses;
-    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome) * 100 : 0;
+    const savingsRate =
+      totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome) * 100 : 0;
 
-    // Calculate top expense categories
+    // Top expense categories
     const categoryTotals = transactions
       .filter((t) => t.type === 'expense')
       .reduce((acc, t) => {
@@ -155,36 +163,28 @@ export function useTransactions() {
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 5);
 
-    // Calculate monthly trend (last 6 months)
+    // Monthly trend — last 6 months
     const now = new Date();
     const monthlyTrend = Array.from({ length: 6 }, (_, i) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthStr = date.toISOString().slice(0, 7);
-      const monthName = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      
-      const monthTransactions = transactions.filter(
-        (t) => t.date.startsWith(monthStr)
-      );
-      
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      // Use YYYY-MM format to match normalized transaction dates
+      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthName = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+
+      const monthTxns = transactions.filter((t) => t.date.startsWith(monthStr));
+
       return {
         month: monthName,
-        income: monthTransactions
+        income: monthTxns
           .filter((t) => t.type === 'income')
           .reduce((sum, t) => sum + t.amount, 0),
-        expenses: monthTransactions
+        expenses: monthTxns
           .filter((t) => t.type === 'expense')
           .reduce((sum, t) => sum + t.amount, 0),
       };
     }).reverse();
 
-    return {
-      totalIncome,
-      totalExpenses,
-      netBalance,
-      savingsRate,
-      topExpenseCategories,
-      monthlyTrend,
-    };
+    return { totalIncome, totalExpenses, netBalance, savingsRate, topExpenseCategories, monthlyTrend };
   }, [transactions]);
 
   return {
@@ -194,5 +194,6 @@ export function useTransactions() {
     summary,
     isLoading,
     error,
+    refetch: fetchTransactions,
   };
 }

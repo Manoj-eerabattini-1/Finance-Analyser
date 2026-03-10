@@ -1,97 +1,66 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { useCurrency } from '@/context/CurrencyContext';
-import { Transaction } from '@/types/finance';
-import { ArrowUpCircle, ArrowDownCircle, Trash2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useEffect } from 'react';
+import { StatsCards } from '@/components/dashboard/StatsCards';
+import { TransactionForm } from '@/components/dashboard/TransactionForm';
+import { TransactionList } from '@/components/dashboard/TransactionList';
+import { IncomeExpenseChart, CategoryChart, TrendChart } from '@/components/dashboard/FinanceCharts';
+import { MainLayout } from '@/components/layout/MainLayout';
+import { useTransactions } from '@/hooks/useTransactions';
+import { useToast } from '@/hooks/use-toast';
 
-interface TransactionListProps {
-  transactions: Transaction[];
-  onDelete: (id: string) => void;
-}
+export function DashboardPage() {
+  const { transactions, addTransaction, deleteTransaction, summary, isLoading, error } = useTransactions();
+  const { toast } = useToast();
 
-const formatDate = (dateStr: string) => {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-};
+  useEffect(() => {
+    if (error) {
+      toast({ title: 'Error', description: error, variant: 'destructive' });
+    }
+  }, [error]);
 
-export function TransactionList({ transactions, onDelete }: TransactionListProps) {
-  const { formatCurrency } = useCurrency();
-
-  if (transactions.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Transactions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-center text-muted-foreground py-8">
-            No transactions yet. Add your first one!
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const handleAddTransaction = async (transaction: Parameters<typeof addTransaction>[0]) => {
+    try {
+      await addTransaction(transaction);
+      toast({ title: 'Success', description: 'Transaction added successfully' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to add transaction', variant: 'destructive' });
+    }
+  };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recent Transactions</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {transactions.slice(0, 10).map((transaction) => (
-            <div
-              key={transaction.id}
-              className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={cn(
-                    'rounded-full p-2',
-                    transaction.type === 'income'
-                      ? 'bg-success/10 text-success'
-                      : 'bg-destructive/10 text-destructive'
-                  )}
-                >
-                  {transaction.type === 'income' ? (
-                    <ArrowUpCircle className="h-4 w-4" />
-                  ) : (
-                    <ArrowDownCircle className="h-4 w-4" />
-                  )}
-                </div>
-                <div>
-                  <p className="font-medium">{transaction.category}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {transaction.description || formatDate(transaction.date)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span
-                  className={cn(
-                    'font-semibold',
-                    transaction.type === 'income' ? 'text-success' : 'text-destructive'
-                  )}
-                >
-                  {transaction.type === 'income' ? '+' : '-'}
-                  {formatCurrency(transaction.amount)}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => onDelete(transaction.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
+    <MainLayout>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">Track your income, expenses, and financial health.</p>
         </div>
-      </CardContent>
-    </Card>
+
+        <StatsCards
+          totalIncome={summary.totalIncome}
+          totalExpenses={summary.totalExpenses}
+          netBalance={summary.netBalance}
+          savingsRate={summary.savingsRate}
+        />
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <IncomeExpenseChart monthlyTrend={summary.monthlyTrend} />
+          <CategoryChart categories={summary.topExpenseCategories} />
+        </div>
+
+        <TrendChart monthlyTrend={summary.monthlyTrend} />
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-1">
+            <TransactionForm onSubmit={handleAddTransaction} />
+          </div>
+          <div className="lg:col-span-2">
+            <TransactionList
+              transactions={transactions}
+              onDelete={deleteTransaction}
+              isLoading={isLoading}
+            />
+          </div>
+        </div>
+      </div>
+    </MainLayout>
   );
 }

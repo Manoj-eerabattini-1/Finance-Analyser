@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,18 +7,15 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { Wallet, Mail, Lock, User } from 'lucide-react';
 
-interface AuthFormProps {
-  onSuccess?: () => void;
-}
-
-export function AuthForm({ onSuccess }: AuthFormProps) {
+export function AuthForm() {
+  const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  
-  const { login, register } = useAuth();
+
+  const { login, register, isLoading } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,14 +39,15 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
       }
     }
 
-    onSuccess?.();
+    // ✅ Explicitly navigate to dashboard after success
+    navigate('/dashboard', { replace: true });
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/20 to-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 h-16 w-16 rounded-full gradient-primary flex items-center justify-center">
+          <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-primary flex items-center justify-center">
             <Wallet className="h-8 w-8 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Finance Planner</CardTitle>
@@ -111,8 +110,8 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
               <p className="text-sm text-destructive text-center">{error}</p>
             )}
 
-            <Button type="submit" className="w-full gradient-primary">
-              {mode === 'login' ? 'Sign In' : 'Create Account'}
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account'}
             </Button>
           </form>
 

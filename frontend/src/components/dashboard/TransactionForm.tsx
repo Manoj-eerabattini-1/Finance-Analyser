@@ -16,7 +16,7 @@ const incomeCategories = ['Salary', 'Freelance', 'Investments', 'Rental', 'Busin
 const expenseCategories = ['Housing', 'Food', 'Transportation', 'Utilities', 'Entertainment', 'Healthcare', 'Shopping', 'Education', 'Other'];
 
 export function TransactionForm({ onSubmit }: TransactionFormProps) {
-  const { formatCurrency } = useCurrency();
+  const { formatCurrency, currency } = useCurrency();
   const [type, setType] = useState<'income' | 'expense'>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
@@ -86,14 +86,16 @@ export function TransactionForm({ onSubmit }: TransactionFormProps) {
           <div className="space-y-2">
             <Label htmlFor="amount">Amount</Label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {currency === 'INR' ? '₹' : '$'}
+              </span>
               <Input
                 id="amount"
                 type="number"
                 step="0.01"
                 min="0"
                 placeholder="0.00"
-                value={formatCurrency(parseFloat(amount) || 0)}
+                value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="pl-7"
                 required

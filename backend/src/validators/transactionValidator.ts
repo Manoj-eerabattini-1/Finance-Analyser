@@ -6,8 +6,8 @@ export const createTransactionSchema = z.object({
   }),
   amount: z.number().positive("Amount must be greater than 0"),
   category: z.string().min(1, "Category is required"),
-  description: z.string().optional(),
-  date: z.string().datetime().optional(),
+  description: z.string().optional().default(""),
+  date: z.string().optional(),  // Accept any date string — controller handles conversion
 });
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
