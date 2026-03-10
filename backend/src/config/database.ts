@@ -1,19 +1,43 @@
 import mongoose from "mongoose";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+let isConnected = false;
 
 const connectDB = async (): Promise<void> => {
   try {
-    const mongoURI = process.env.MONGODB_URI || "mongodb://localhost:27017/smart-financial-goal";
+    let mongoURI = process.env.MONGODB_URI;
+    console.log("ENV URI:", process.env.MONGODB_URI);
+    console.log("Connected DB:", mongoose.connection.name);
+    
+    // If MongoDB Atlas URI fails, try local MongoDB
+    if (!mongoURI) {
+      console.warn("⚠️ MONGODB_URI not found in .env, using local MongoDB...");
+      mongoURI = "mongodb://localhost:27017/financePlanner";
+    }
+
+    console.log("📡 Attempting MongoDB connection...");
+    console.log(`Connection string: ${mongoURI.includes('mongodb+srv') ? 'MongoDB Atlas' : 'Local MongoDB'}`);
 
     const conn = await mongoose.connect(mongoURI, {
       retryWrites: true,
       w: "majority",
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 10000,
     });
 
-    console.log(`MongoDB connected: ${conn.connection.host}`);
+    isConnected = true;
+    console.log(`✅ MongoDB connected: ${conn.connection.host}`);
   } catch (error) {
-    console.error("MongoDB connection error:", error);
-    process.exit(1);
+    isConnected = false;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("⚠️ MongoDB connection failed:", errorMessage);
+    
+    
+    // Don't crash the server - continue without database
+    console.log("\n🚀 Server will start without database. Connect MongoDB later.");
   }
 };
 
-export default connectDB;
+export { connectDB, isConnected };

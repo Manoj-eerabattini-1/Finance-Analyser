@@ -4,6 +4,7 @@ export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
+  currency: 'INR' | 'USD';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,6 +33,12 @@ const userSchema = new Schema<IUser>(
       required: [true, "Please provide a password"],
       minlength: [6, "Password must be at least 6 characters"],
       select: false,
+    },
+    currency: {
+      type: String,
+      enum: ['INR', 'USD'],
+      default: 'INR',
+      description: 'User preferred currency for financial display',
     },
   },
   { timestamps: true }

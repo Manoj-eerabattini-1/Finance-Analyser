@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import Goal from "../models/Goal.js";
+import User from "../models/User.js";
 import { sendResponse, ApiError } from "../utils/apiResponse.js";
 import { interpretGoal, generateFinancialSuggestions } from "../services/llmService.js";
+import { CurrencyType } from "../utils/currencyFormatter.js";
 
 export const createGoal = async (
   req: Request,
@@ -21,17 +23,22 @@ export const createGoal = async (
 
     await goal.save();
 
-    // ✨ NEW: Auto-enhance with LLM
+    // ✨ NEW: Auto-enhance with LLM using user's preferred currency
     let llmEnhanced = null;
     try {
-      // Call LLM to enhance goal understanding
-      const llmInterpretation = await interpretGoal(goalTitle);
+      // Get user's currency preference (default to INR)
+      const user = await User.findById(req.userId);
+      const currency: CurrencyType = (user?.currency as CurrencyType) || 'INR';
       
-      // Generate financial suggestions (using typical monthly amounts)
+      // Call LLM to enhance goal understanding with currency support
+      const llmInterpretation = await interpretGoal(goalTitle, currency);
+      
+      // Generate financial suggestions with currency support
       const suggestions = await generateFinancialSuggestions(
         50000, // Assumed monthly income for suggestions
         30000, // Assumed monthly expenses for suggestions
-        targetAmount
+        targetAmount,
+        currency // Pass user's currency preference
       );
 
       llmEnhanced = {

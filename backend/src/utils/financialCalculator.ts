@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 import Transaction from "../models/Transaction.js";
 import Goal from "../models/Goal.js";
+import { formatCurrency, CurrencyType } from "./currencyFormatter.js";
 
 /**
  * Calculate total income for a user in a given time period
@@ -125,12 +126,13 @@ export const generateGoalSuggestion = (
 };
 
 /**
- * Generate alternative savings scenarios
+ * Generate alternative savings scenarios with currency support
  */
 export const generateAlternativeScenarios = (
   targetAmount: number,
   currentSavings: number,
-  deadline: Date
+  deadline: Date,
+  currency: CurrencyType = 'INR'
 ): Array<{
   scenarioName: string;
   monthlySavings: number;
@@ -159,7 +161,7 @@ export const generateAlternativeScenarios = (
     adjustmentPercent: Math.round(
       ((scenario1Savings - baseMonthsSavings) / baseMonthsSavings) * 100
     ),
-    description: `Achieve goal 6 months earlier by saving ₹${scenario1Savings.toLocaleString("en-IN")} monthly`,
+    description: `Achieve goal 6 months earlier by saving ${formatCurrency(scenario1Savings, currency)} monthly`,
   });
 
   // Scenario 2: Extend deadline by 6 months
@@ -176,7 +178,7 @@ export const generateAlternativeScenarios = (
     adjustmentPercent: Math.round(
       ((scenario2Savings - baseMonthsSavings) / baseMonthsSavings) * 100
     ),
-    description: `Achieve goal with reduced monthly savings of ₹${scenario2Savings.toLocaleString("en-IN")}`,
+    description: `Achieve goal with reduced monthly savings of ${formatCurrency(scenario2Savings, currency)}`,
   });
 
   // Scenario 3: Increase target by covering only 80%
@@ -192,7 +194,7 @@ export const generateAlternativeScenarios = (
     adjustmentPercent: Math.round(
       ((scenario3Savings - baseMonthsSavings) / baseMonthsSavings) * 100
     ),
-    description: `Achieve 80% of goal (₹${Math.round(scenario3Amount).toLocaleString("en-IN")}) with ₹${scenario3Savings.toLocaleString("en-IN")} monthly`,
+    description: `Achieve 80% of goal (${formatCurrency(Math.round(scenario3Amount), currency)}) with ${formatCurrency(scenario3Savings, currency)} monthly`,
   });
 
   return scenarios;

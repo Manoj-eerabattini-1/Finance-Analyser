@@ -1,8 +1,10 @@
 import axios from "axios";
+import { formatCurrency, CurrencyType, getCurrencyCode } from "../utils/currencyFormatter.js";
 
 /**
  * LLM Service for integrating with external APIs
  * Supports OpenAI and Gemini APIs
+ * Now with multi-currency support
  */
 
 interface GoalInterpretationResult {
@@ -16,10 +18,11 @@ interface GoalInterpretationResult {
 
 /**
  * Use OpenAI API to interpret a goal from natural language
- * Example: "I want to save ₹5,00,000 for a car in 2 years"
+ * Example: "I want to save ₹5,00,000 for a car in 2 years" or "$500,000 for a car"
  */
 export const interpretGoalWithOpenAI = async (
-  goalDescription: string
+  goalDescription: string,
+  currency: CurrencyType = 'INR'
 ): Promise<GoalInterpretationResult> => {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -34,7 +37,7 @@ Parse the following financial goal and extract structured information:
 
 Return a JSON object with:
 - goalTitle (string): Short title for the goal
-- targetAmount (number): Amount in rupees (extract or estimate)
+- targetAmount (number): Amount in ${getCurrencyCode(currency)} (extract or estimate)
 - estimatedDeadlineMonths (number): Months to achieve goal
 - category (string): One of [Car, House, Education, Vacation, Emergency Fund, Investment, Wedding, Retirement, Business, Other]
 - confidence (number): 0-100 confidence in the interpretation
@@ -84,7 +87,8 @@ Return ONLY valid JSON, no markdown.`;
  * Use Gemini API to interpret a goal from natural language
  */
 export const interpretGoalWithGemini = async (
-  goalDescription: string
+  goalDescription: string,
+  currency: CurrencyType = 'INR'
 ): Promise<GoalInterpretationResult> => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -99,7 +103,7 @@ Parse the following financial goal and extract structured information:
 
 Return a JSON object with:
 - goalTitle (string): Short title for the goal
-- targetAmount (number): Amount in rupees (extract or estimate)
+- targetAmount (number): Amount in ${getCurrencyCode(currency)} (extract or estimate)
 - estimatedDeadlineMonths (number): Months to achieve goal
 - category (string): One of [Car, House, Education, Vacation, Emergency Fund, Investment, Wedding, Retirement, Business, Other]
 - confidence (number): 0-100 confidence in the interpretation
@@ -140,15 +144,16 @@ Return ONLY valid JSON, no markdown.`;
 };
 
 /**
- * Choose the best available LLM and interpret goal
+ * Choose the best available LLM and interpret goal with currency support
  */
 export const interpretGoal = async (
-  goalDescription: string
+  goalDescription: string,
+  currency: CurrencyType = 'INR'
 ): Promise<GoalInterpretationResult> => {
   // Try OpenAI first
   if (process.env.OPENAI_API_KEY) {
     try {
-      return await interpretGoalWithOpenAI(goalDescription);
+      return await interpretGoalWithOpenAI(goalDescription, currency);
     } catch (error) {
       console.warn("OpenAI API failed, trying Gemini...");
     }
@@ -157,7 +162,7 @@ export const interpretGoal = async (
   // Fall back to Gemini
   if (process.env.GEMINI_API_KEY) {
     try {
-      return await interpretGoalWithGemini(goalDescription);
+      return await interpretGoalWithGemini(goalDescription, currency);
     } catch (error) {
       console.warn("Gemini API also failed");
     }
@@ -165,7 +170,7 @@ export const interpretGoal = async (
 
   // If no API keys configured, return default interpretation
   console.warn("No LLM API configured, using fallback parsing");
-  return fallbackGoalInterpretation(goalDescription);
+  return fallbackGoalInterpretation(goalDescription, currency);
 };
 
 /**
@@ -173,10 +178,11 @@ export const interpretGoal = async (
  * Used when no LLM API is available
  */
 function fallbackGoalInterpretation(
-  description: string
+  description: string,
+  currency: CurrencyType = 'INR'
 ): GoalInterpretationResult {
-  // Try to extract amount (rupees)
-  const amountMatch = description.match(/₹?(\d+(?:,?\d+)*)/);
+  // Try to extract amount (rupees or dollars)
+  const amountMatch = description.match(/[₹$]?(\d+(?:,?\d+)*)/);
   const targetAmount = amountMatch
     ? parseInt(amountMatch[1].replace(/,/g, ""))
     : 100000;
@@ -220,30 +226,31 @@ function fallbackGoalInterpretation(
     estimatedDeadlineMonths,
     category,
     confidence: 40,
-    rawInterpretation: `Fallback parsing: Goal appears to be saving ₹${targetAmount.toLocaleString("en-IN")} for ${category} in ${estimatedDeadlineMonths} months`,
+    rawInterpretation: `Fallback parsing: Goal appears to be saving ${formatCurrency(targetAmount, currency)} for ${category} in ${estimatedDeadlineMonths} months`,
   };
 }
 
 /**
- * Generate financial suggestions using LLM
+ * Generate financial suggestions using LLM with currency support
  */
 export const generateFinancialSuggestions = async (
   income: number,
   expenses: number,
-  savingsGoal: number
+  savingsGoal: number,
+  currency: CurrencyType = 'INR'
 ): Promise<string[]> => {
   try {
     const apiKey = process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-      return generateFallbackSuggestions(income, expenses, savingsGoal);
+      return generateFallbackSuggestions(income, expenses, savingsGoal, currency);
     }
 
     const prompt = `
 Given:
-- Monthly Income: ₹${income.toLocaleString("en-IN")}
-- Monthly Expenses: ₹${expenses.toLocaleString("en-IN")}
-- Savings Goal: ₹${savingsGoal.toLocaleString("en-IN")}
+- Monthly Income: ${formatCurrency(income, currency)}
+- Monthly Expenses: ${formatCurrency(expenses, currency)}
+- Savings Goal: ${formatCurrency(savingsGoal, currency)}
 
 Generate 3 practical financial suggestions to achieve this goal. Be specific and actionable.
 Return as a JSON array of strings.`;
@@ -273,16 +280,17 @@ Return as a JSON array of strings.`;
     console.warn("LLM suggestion generation failed");
   }
 
-  return generateFallbackSuggestions(income, expenses, savingsGoal);
+  return generateFallbackSuggestions(income, expenses, savingsGoal, currency);
 };
 
 /**
- * Generate fallback suggestions without LLM
+ * Generate fallback suggestions without LLM with currency support
  */
 function generateFallbackSuggestions(
   income: number,
   expenses: number,
-  savingsGoal: number
+  savingsGoal: number,
+  currency: CurrencyType = 'INR'
 ): string[] {
   const availableSavings = income - expenses;
   const monthsNeeded = Math.ceil(savingsGoal / availableSavings);
@@ -291,7 +299,7 @@ function generateFallbackSuggestions(
 
   if (availableSavings < savingsGoal / 12) {
     suggestions.push(
-      `Your current savings capacity (₹${availableSavings.toLocaleString("en-IN")}/month) falls short. Consider reducing discretionary expenses by 15-20%.`
+      `Your current savings capacity (${formatCurrency(availableSavings, currency)}/month) falls short. Consider reducing discretionary expenses by 15-20%.`
     );
   }
 

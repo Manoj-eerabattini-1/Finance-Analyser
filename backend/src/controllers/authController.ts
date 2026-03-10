@@ -2,10 +2,16 @@ import { Request, Response, NextFunction } from "express";
 import User from "../models/User.js";
 import { hashPassword, comparePassword, generateToken } from "../utils/auth.js";
 import { sendResponse, ApiError } from "../utils/apiResponse.js";
+import { isValidCurrency, CurrencyType } from "../utils/currencyFormatter.js";
 
 export const register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, currency = 'INR' } = req.body;
+
+    // Validate currency if provided
+    if (currency && !isValidCurrency(currency)) {
+      throw new ApiError(400, "Invalid currency. Supported: INR, USD");
+    }
 
     const userExists = await User.findOne({ email: email.toLowerCase() });
     if (userExists) {
@@ -18,6 +24,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
       name,
       email: email.toLowerCase(),
       password: hashedPassword,
+      currency: currency || 'INR',
     });
 
     await user.save();
@@ -33,6 +40,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
         userId: user._id,
         name: user.name,
         email: user.email,
+        currency: user.currency,
         token,
       }
     );
@@ -61,6 +69,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       userId: user._id,
       name: user.name,
       email: user.email,
+      currency: user.currency || 'INR',
       token,
     });
   } catch (error) {
@@ -84,7 +93,68 @@ export const getProfile = async (
       userId: user._id,
       name: user.name,
       email: user.email,
+      currency: user.currency || 'INR',
       createdAt: user.createdAt,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get user's currency preference
+ * @route GET /api/auth/currency
+ */
+export const getCurrency = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = await User.findById(req.userId);
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    sendResponse(res, 200, true, "Currency preference retrieved", {
+      currency: user.currency || 'INR',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Set user's currency preference
+ * @route PUT /api/auth/currency
+ * @body { currency: 'INR' | 'USD' }
+ */
+export const setCurrency = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { currency } = req.body;
+
+    // Validate currency
+    if (!currency || !isValidCurrency(currency)) {
+      throw new ApiError(400, "Invalid currency. Supported: INR, USD");
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { currency},
+      { new: true }
+    );
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    sendResponse(res, 200, true, "Currency preference updated successfully", {
+      currency: user.currency,
     });
   } catch (error) {
     next(error);

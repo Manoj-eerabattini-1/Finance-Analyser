@@ -3,14 +3,14 @@ import "express-async-errors";
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
-import connectDB from "./config/database.js";
+import { connectDB } from "./config/database.js";
 import authRoutes from "./routes/authRoutes.js";
 import transactionRoutes from "./routes/transactionRoutes.js";
 import goalRoutes from "./routes/goalRoutes.js";
 import plannerRoutes from "./routes/plannerRoutes.js";
 import reportsRoutes from "./routes/reportsRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-
+   
 const app = express();
 
 app.use(cors({
