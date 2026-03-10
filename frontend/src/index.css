@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fintech Design System - Emerald/Teal Theme */
+
+@layer base {
+  :root {
+    --background: 150 20% 98%;
+    --foreground: 160 30% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 160 30% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 160 30% 10%;
+
+    --primary: 158 64% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 160 20% 94%;
+    --secondary-foreground: 160 30% 20%;
+
+    --muted: 150 15% 94%;
+    --muted-foreground: 160 15% 45%;
+
+    --accent: 174 60% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 10%;
+
+    --border: 160 20% 88%;
+    --input: 160 20% 88%;
+    --ring: 158 64% 42%;
+
+    --radius: 0.75rem;
+
+    /* Custom finance tokens */
+    --income: 142 76% 36%;
+    --expense: 0 72% 51%;
+    --savings: 200 80% 50%;
+    --goal: 280 65% 55%;
+
+    --chart-1: 158 64% 42%;
+    --chart-2: 174 60% 45%;
+    --chart-3: 142 76% 36%;
+    --chart-4: 200 80% 50%;
+    --chart-5: 280 65% 55%;
+
+    --sidebar-background: 160 25% 96%;
+    --sidebar-foreground: 160 30% 20%;
+    --sidebar-primary: 158 64% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 160 20% 90%;
+    --sidebar-accent-foreground: 160 30% 20%;
+    --sidebar-border: 160 20% 88%;
+    --sidebar-ring: 158 64% 42%;
+  }
+
+  .dark {
+    --background: 160 25% 8%;
+    --foreground: 150 20% 95%;
+
+    --card: 160 25% 12%;
+    --card-foreground: 150 20% 95%;
+
+    --popover: 160 25% 12%;
+    --popover-foreground: 150 20% 95%;
+
+    --primary: 158 64% 50%;
+    --primary-foreground: 160 30% 10%;
+
+    --secondary: 160 20% 18%;
+    --secondary-foreground: 150 20% 90%;
+
+    --muted: 160 20% 18%;
+    --muted-foreground: 160 15% 60%;
+
+    --accent: 174 60% 50%;
+    --accent-foreground: 160 30% 10%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 90% 55%;
+    --warning-foreground: 0 0% 10%;
+
+    --border: 160 20% 20%;
+    --input: 160 20% 20%;
+    --ring: 158 64% 50%;
+
+    --income: 142 70% 45%;
+    --expense: 0 62% 50%;
+    --savings: 200 75% 55%;
+    --goal: 280 60% 60%;
+
+    --chart-1: 158 64% 50%;
+    --chart-2: 174 60% 50%;
+    --chart-3: 142 70% 45%;
+    --chart-4: 200 75% 55%;
+    --chart-5: 280 60% 60%;
+
+    --sidebar-background: 160 25% 10%;
+    --sidebar-foreground: 150 20% 90%;
+    --sidebar-primary: 158 64% 50%;
+    --sidebar-primary-foreground: 160 30% 10%;
+    --sidebar-accent: 160 20% 16%;
+    --sidebar-accent-foreground: 150 20% 90%;
+    --sidebar-border: 160 20% 20%;
+    --sidebar-ring: 158 64% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+/* Custom utility classes */
+@layer utilities {
+  .glass {
+    @apply bg-card/80 backdrop-blur-md;
+  }
+  
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  }
+  
+  .text-balance {
+    text-wrap: balance;
+  }
+}
