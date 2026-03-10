@@ -112,7 +112,7 @@ mongosh
 1. Go to https://www.mongodb.com/cloud/atlas
 2. Create a free account
 3. Create a new cluster
-4. Get your connection string: `mongodb+srv://username:password@cluster.mongodb.net/database`
+4. Get your connection string: 
 5. Add your IP address to IP Whitelist
 6. Use the connection string in `.env` file
 

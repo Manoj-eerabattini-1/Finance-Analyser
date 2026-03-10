@@ -19,7 +19,7 @@ MONGODB_URI=mongodb://localhost:27017/smart-financial-goal
 
 **Options:**
 - **Local MongoDB**: `mongodb://localhost:27017/smart-financial-goal`
-- **MongoDB Atlas**: `mongodb+srv://username:password@cluster.mongodb.net/dbname?retryWrites=true&w=majority`
+retryWrites=true&w=majority`
 
 #### Authentication
 ```env
@@ -95,7 +95,7 @@ MONGODB_URI=mongodb://admin:password@localhost:27017/smart-financial-goal?authSo
 4. Get connection string
 5. Update `.env`:
 ```env
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/smart-financial-goal?retryWrites=true&w=majority
+
 ```
 
 ### 2. Environment File (.env)
@@ -345,7 +345,6 @@ LOG_LEVEL=debug
 ```env
 NODE_ENV=staging
 PORT=5000
-MONGODB_URI=mongodb+srv://staging-user:password@staging-cluster.mongodb.net/smart-financial-goal
 JWT_SECRET=staging-secure-secret-key
 CORS_ORIGIN=https://staging.yourdomain.com
 LOG_LEVEL=info
@@ -355,7 +354,6 @@ LOG_LEVEL=info
 ```env
 NODE_ENV=production
 PORT=5000
-MONGODB_URI=mongodb+srv://prod-user:password@prod-cluster.mongodb.net/smart-financial-goal
 JWT_SECRET=production-ultra-secure-secret-key
 CORS_ORIGIN=https://yourdomain.com
 LOG_LEVEL=error

@@ -170,7 +170,6 @@ PORT=5000
 NODE_ENV=development
 
 # Database Configuration (MongoDB Atlas)
-MONGODB_URI=mongodb+srv://username:PASSWORD@cluster.mongodb.net/smart-financial-goal?retryWrites=true&w=majority
 MONGODB_USER=
 MONGODB_PASSWORD=
 
@@ -261,10 +260,7 @@ Since you have a MongoDB Atlas cluster running, **skip local MongoDB installatio
    - Go to `backend/.env`
    - Replace `MONGODB_URI` with your connection string
    - Replace `PASSWORD` with your actual cluster password
-   - Example:
-     ```
-     MONGODB_URI=mongodb+srv://manoj:MyPassword123@mycluster.mongodb.net/smart-financial-goal?retryWrites=true&w=majority
-     ```
+   
 
 #### Use MongoDB Compass (You Already Have This!)
 

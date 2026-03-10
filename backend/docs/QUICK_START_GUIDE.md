@@ -75,8 +75,7 @@ Edit `.env`:
 PORT=5000
 NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/smart-financial-goal
-or
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/smart-financial-goal
+
 
 JWT_SECRET=your_secret_key_here
 CORS_ORIGIN=http://localhost:5173
