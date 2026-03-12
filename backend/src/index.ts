@@ -10,6 +10,7 @@ import goalRoutes from "./routes/goalRoutes.js";
 import plannerRoutes from "./routes/plannerRoutes.js";
 import reportsRoutes from "./routes/reportsRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import chatRoutes from "./routes/chatRoutes.js";
    
 const app = express();
 
@@ -30,6 +31,7 @@ app.use("/api/transactions", transactionRoutes);
 app.use("/api/goals", goalRoutes);
 app.use("/api/planner", plannerRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/chat", chatRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({

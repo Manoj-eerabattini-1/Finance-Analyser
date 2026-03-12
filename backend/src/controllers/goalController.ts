@@ -11,51 +11,78 @@ export const createGoal = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { goalTitle, targetAmount, deadline, currentSavings = 0 } = req.body;
+    const { naturalLanguageInput, goalTitle, targetAmount, deadline, currentSavings = 0 } = req.body;
+
+    // Get user currency
+    const user = await User.findById(req.userId);
+    const currency: CurrencyType = (user?.currency as CurrencyType) || "INR";
+
+    let finalTitle = goalTitle;
+    let finalAmount = targetAmount;
+    let finalDeadline = deadline;
+    let llmEnhanced = null;
+
+    // If natural language input provided, use LLM to parse it
+    if (naturalLanguageInput && (!goalTitle || !targetAmount || !deadline)) {
+      try {
+        const interpretation = await interpretGoal(naturalLanguageInput, currency);
+        finalTitle = finalTitle || interpretation.goalTitle;
+        finalAmount = finalAmount || interpretation.targetAmount;
+
+        // Convert months to a deadline date if not provided
+        if (!finalDeadline) {
+          const deadlineDate = new Date();
+          deadlineDate.setMonth(deadlineDate.getMonth() + interpretation.estimatedDeadlineMonths);
+          finalDeadline = deadlineDate.toISOString();
+        }
+
+        const suggestions = await generateFinancialSuggestions(
+          50000, 30000, finalAmount, currency
+        );
+
+        llmEnhanced = {
+          confidence: interpretation.confidence,
+          refinedCategory: interpretation.category,
+          rawInterpretation: interpretation.rawInterpretation,
+          suggestions,
+          estimatedDeadlineMonths: interpretation.estimatedDeadlineMonths,
+        };
+      } catch (llmError) {
+        console.warn("LLM parsing failed, using fallback:", llmError);
+        // Fallback: use input as title, set sensible defaults
+        finalTitle = finalTitle || naturalLanguageInput.substring(0, 100);
+        finalAmount = finalAmount || 100000;
+        if (!finalDeadline) {
+          const d = new Date();
+          d.setFullYear(d.getFullYear() + 1);
+          finalDeadline = d.toISOString();
+        }
+      }
+    }
+
+    // Validate we have the minimum required fields
+    if (!finalTitle || !finalAmount || !finalDeadline) {
+      throw new ApiError(400, "Please provide goal details: title, target amount, and deadline");
+    }
+
+    const deadlineDate = new Date(finalDeadline);
+    if (isNaN(deadlineDate.getTime())) {
+      throw new ApiError(400, "Invalid deadline date");
+    }
 
     const goal = new Goal({
       userId: req.userId,
-      goalTitle,
-      targetAmount,
-      deadline: new Date(deadline),
+      goalTitle: finalTitle,
+      targetAmount: finalAmount,
+      deadline: deadlineDate,
       currentSavings,
     });
 
     await goal.save();
 
-    // ✨ NEW: Auto-enhance with LLM using user's preferred currency
-    let llmEnhanced = null;
-    try {
-      // Get user's currency preference (default to INR)
-      const user = await User.findById(req.userId);
-      const currency: CurrencyType = (user?.currency as CurrencyType) || 'INR';
-      
-      // Call LLM to enhance goal understanding with currency support
-      const llmInterpretation = await interpretGoal(goalTitle, currency);
-      
-      // Generate financial suggestions with currency support
-      const suggestions = await generateFinancialSuggestions(
-        50000, // Assumed monthly income for suggestions
-        30000, // Assumed monthly expenses for suggestions
-        targetAmount,
-        currency // Pass user's currency preference
-      );
-
-      llmEnhanced = {
-        confidence: llmInterpretation.confidence,
-        refinedCategory: llmInterpretation.category,
-        rawInterpretation: llmInterpretation.rawInterpretation,
-        suggestions: suggestions,
-        estimatedDeadlineMonths: llmInterpretation.estimatedDeadlineMonths,
-      };
-    } catch (llmError) {
-      // Silently fail - goal is still created without LLM
-      console.warn("LLM enhancement skipped:", llmError);
-    }
-
-    const goalObj = goal.toObject();
     sendResponse(res, 201, true, "Goal created successfully", {
-      ...goalObj,
+      // ...goal.toObject(),
+      ...(goal.toObject() as Record<string, any>),
       llmEnhanced,
     });
   } catch (error) {
@@ -69,10 +96,9 @@ export const getGoals = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { page = 1, limit = 10 } = req.query;
-
+    const { page = 1, limit = 50 } = req.query;
     const pageNum = parseInt(page as string) || 1;
-    const limitNum = parseInt(limit as string) || 10;
+    const limitNum = parseInt(limit as string) || 50;
 
     const total = await Goal.countDocuments({ userId: req.userId });
     const goals = await Goal.find({ userId: req.userId })
@@ -82,12 +108,7 @@ export const getGoals = async (
 
     sendResponse(res, 200, true, "Goals retrieved successfully", {
       goals,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum),
-      },
+      pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) },
     });
   } catch (error) {
     next(error);
@@ -101,12 +122,8 @@ export const getGoal = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-
     const goal = await Goal.findOne({ _id: id, userId: req.userId });
-
-    if (!goal) {
-      throw new ApiError(404, "Goal not found");
-    }
+    if (!goal) throw new ApiError(404, "Goal not found");
 
     const monthsLeft = Math.ceil(
       (new Date(goal.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)
@@ -114,13 +131,39 @@ export const getGoal = async (
     const amountLeft = goal.targetAmount - goal.currentSavings;
     const monthlySavingsRequired = monthsLeft > 0 ? amountLeft / monthsLeft : 0;
 
-    const goalObj = goal.toObject();
     sendResponse(res, 200, true, "Goal retrieved successfully", {
-      ...goalObj,
-      monthsLeft,
-      amountLeft,
-      monthlySavingsRequired,
+      // ...goal.toObject(), 
+      ...(goal.toObject() as Record<string, any>),
+      monthsLeft, amountLeft, monthlySavingsRequired,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// NEW — handles addToGoal from frontend (PUT /api/goals/:id)
+export const updateGoal = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { currentSavings, currentAmount, goalTitle, targetAmount, deadline } = req.body;
+
+    const goal = await Goal.findOne({ _id: id, userId: req.userId });
+    if (!goal) throw new ApiError(404, "Goal not found");
+
+    // Support both field names (frontend uses currentAmount, DB uses currentSavings)
+    if (currentSavings !== undefined) goal.currentSavings = currentSavings;
+    if (currentAmount !== undefined) goal.currentSavings = currentAmount;
+    if (goalTitle) goal.goalTitle = goalTitle;
+    if (targetAmount) goal.targetAmount = targetAmount;
+    if (deadline) goal.deadline = new Date(deadline);
+
+    await goal.save();
+
+    sendResponse(res, 200, true, "Goal updated successfully", goal.toObject() as Record<string, any>);
   } catch (error) {
     next(error);
   }
@@ -133,15 +176,9 @@ export const deleteGoal = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-
     const goal = await Goal.findOne({ _id: id, userId: req.userId });
-
-    if (!goal) {
-      throw new ApiError(404, "Goal not found");
-    }
-
+    if (!goal) throw new ApiError(404, "Goal not found");
     await Goal.deleteOne({ _id: id });
-
     sendResponse(res, 200, true, "Goal deleted successfully");
   } catch (error) {
     next(error);

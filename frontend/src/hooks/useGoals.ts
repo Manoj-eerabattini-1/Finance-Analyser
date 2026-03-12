@@ -3,234 +3,161 @@ import { FinancialGoal, SavingsScenario } from '@/types/finance';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
+function getAuthHeaders() {
+  const token = localStorage.getItem('token');
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
 export function useGoals() {
   const [goals, setGoals] = useState<FinancialGoal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch goals from backend
   const fetchGoals = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
       const token = localStorage.getItem('token');
+      if (!token) { setGoals([]); return; }
 
-      if (!token) {
-        console.warn('No token found. User not authenticated.');
-        setGoals([]);
-        setIsLoading(false);
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/goals`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+      const response = await fetch(`${API_BASE_URL}/goals?limit=100`, {
+        headers: getAuthHeaders(),
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch goals: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error('Failed to fetch goals');
 
       const data = await response.json();
-      console.log('Fetched goals:', data);
-      
-      // Format goals from backend
-      const formattedGoals = (data.data || []).map((g: any) => ({
+      // Backend returns { data: { goals: [], pagination: {} } }
+      const raw = data.data?.goals ?? [];
+
+      const formatted: FinancialGoal[] = raw.map((g: any) => ({
         id: g._id || g.id,
-        description: g.description || g.goalTitle || 'Financial Goal',
+        description: g.goalTitle || g.description || 'Financial Goal',
         targetAmount: g.targetAmount || 0,
-        currentAmount: g.currentAmount || g.currentSavings || 0,
-        deadline: g.deadline ? new Date(g.deadline).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        naturalLanguageInput: g.naturalLanguageInput || g.description || '',
-        parsedIntent: g.parsedIntent || 'general savings',
+        currentAmount: g.currentSavings ?? g.currentAmount ?? 0,
+        deadline: g.deadline
+          ? new Date(g.deadline).toISOString().split('T')[0]
+          : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        naturalLanguageInput: g.naturalLanguageInput || g.goalTitle || '',
+        parsedIntent: g.llmEnhanced?.refinedCategory || 'general savings',
         createdAt: g.createdAt || new Date().toISOString(),
       }));
 
-      setGoals(formattedGoals);
+      setGoals(formatted);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch goals';
-      console.error('Error fetching goals:', errorMsg);
-      setError(errorMsg);
+      const msg = err instanceof Error ? err.message : 'Failed to fetch goals';
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Fetch goals on mount
-  useEffect(() => {
-    fetchGoals();
-  }, [fetchGoals]);
+  useEffect(() => { fetchGoals(); }, [fetchGoals]);
 
   const addGoal = useCallback(async (naturalLanguageInput: string) => {
     try {
-      const token = localStorage.getItem('token');
-
-      if (!token) {
-        setError('User not authenticated');
-        return;
-      }
-
+      setError(null);
       const response = await fetch(`${API_BASE_URL}/goals`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          description: naturalLanguageInput,
-          naturalLanguageInput,
-        }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ naturalLanguageInput }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to add goal');
+        const errData = await response.json();
+        throw new Error(errData.message || 'Failed to add goal');
       }
 
       const data = await response.json();
-      console.log('Goal added:', data);
-      
-      // Refresh goals list
-      await fetchGoals();
+      const g = data.data;
+
+      // Optimistically add to list
+      const newGoal: FinancialGoal = {
+        id: g._id || g.id,
+        description: g.goalTitle || naturalLanguageInput,
+        targetAmount: g.targetAmount || 0,
+        currentAmount: g.currentSavings || 0,
+        deadline: g.deadline
+          ? new Date(g.deadline).toISOString().split('T')[0]
+          : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        naturalLanguageInput,
+        parsedIntent: g.llmEnhanced?.refinedCategory || 'general savings',
+        createdAt: g.createdAt || new Date().toISOString(),
+      };
+
+      setGoals((prev) => [newGoal, ...prev]);
+      return { success: true, goal: newGoal, llmEnhanced: g.llmEnhanced };
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to add goal';
-      console.error('Error adding goal:', errorMsg);
-      setError(errorMsg);
-    }
-  }, [fetchGoals]);
-
-  const deleteGoal = useCallback(async (id: string) => {
-    try {
-      const token = localStorage.getItem('token');
-
-      if (!token) {
-        setError('User not authenticated');
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/goals/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete goal');
-      }
-
-      console.log('Goal deleted:', id);
-      
-      // Update local state immediately for better UX
-      setGoals((prev) => prev.filter((g) => g.id !== id));
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to delete goal';
-      console.error('Error deleting goal:', errorMsg);
-      setError(errorMsg);
+      const msg = err instanceof Error ? err.message : 'Failed to add goal';
+      setError(msg);
+      throw err;
     }
   }, []);
 
+  const deleteGoal = useCallback(async (id: string) => {
+    try {
+      setGoals((prev) => prev.filter((g) => g.id !== id));
+      const response = await fetch(`${API_BASE_URL}/goals/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) {
+        await fetchGoals(); // rollback
+        throw new Error('Failed to delete goal');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete goal';
+      setError(msg);
+    }
+  }, [fetchGoals]);
+
   const addToGoal = useCallback(async (id: string, amount: number) => {
     try {
-      const token = localStorage.getItem('token');
-
-      if (!token) {
-        setError('User not authenticated');
-        return;
-      }
-
-      // Update locally first for better UX
+      // Optimistic update
       setGoals((prev) =>
-        prev.map((g) =>
-          g.id === id ? { ...g, currentAmount: g.currentAmount + amount } : g
-        )
+        prev.map((g) => g.id === id ? { ...g, currentAmount: g.currentAmount + amount } : g)
       );
 
-      // Then sync with backend
       const goal = goals.find((g) => g.id === id);
-      if (!goal) return;
+      const newAmount = (goal?.currentAmount || 0) + amount;
 
       const response = await fetch(`${API_BASE_URL}/goals/${id}`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          currentAmount: goal.currentAmount + amount,
-        }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ currentAmount: newAmount }),
       });
 
       if (!response.ok) {
+        await fetchGoals();
         throw new Error('Failed to update goal');
       }
-
-      console.log('Goal updated:', id);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to update goal';
-      console.error('Error updating goal:', errorMsg);
-      setError(errorMsg);
-      // Refresh to get correct data
-      fetchGoals();
+      const msg = err instanceof Error ? err.message : 'Failed to update goal';
+      setError(msg);
     }
   }, [goals, fetchGoals]);
 
+  // Fixed: takes only goal as argument (GoalsPage was passing 3 args — fixed below)
   const calculateScenarios = useCallback((goal: FinancialGoal): SavingsScenario[] => {
     const remaining = Math.max(0, goal.targetAmount - goal.currentAmount);
     const deadlineDate = new Date(goal.deadline);
     const now = new Date();
-    const monthsToDeadline = Math.max(1, 
-      (deadlineDate.getFullYear() - now.getFullYear()) * 12 + 
-      (deadlineDate.getMonth() - now.getMonth())
+    const daysToDeadline = Math.max(1, Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+    const weeksToDeadline = Math.ceil(daysToDeadline / 7);
+    const monthsToDeadline = Math.max(1,
+      (deadlineDate.getFullYear() - now.getFullYear()) * 12 + (deadlineDate.getMonth() - now.getMonth())
     );
 
-    const scenarios: SavingsScenario[] = [];
+    const scenarios: SavingsScenario[] = [
+      { period: 'daily', amount: Math.ceil(remaining / daysToDeadline), projectedSavings: remaining, timeToGoal: `${daysToDeadline} days` },
+      { period: 'weekly', amount: Math.ceil(remaining / weeksToDeadline), projectedSavings: remaining, timeToGoal: `${weeksToDeadline} weeks` },
+      { period: 'monthly', amount: Math.ceil(remaining / monthsToDeadline), projectedSavings: remaining, timeToGoal: `${monthsToDeadline} months` },
+    ];
 
-    // Daily scenario
-    const daysToDeadline = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    const dailyAmount = remaining / Math.max(1, daysToDeadline);
-    scenarios.push({
-      period: 'daily',
-      amount: Math.ceil(dailyAmount * 100) / 100,
-      projectedSavings: remaining,
-      timeToGoal: `${daysToDeadline} days`,
-    });
-
-    // Weekly scenario
-    const weeksToDeadline = Math.ceil(daysToDeadline / 7);
-    const weeklyAmount = remaining / Math.max(1, weeksToDeadline);
-    scenarios.push({
-      period: 'weekly',
-      amount: Math.ceil(weeklyAmount * 100) / 100,
-      projectedSavings: remaining,
-      timeToGoal: `${weeksToDeadline} weeks`,
-    });
-
-    // Monthly scenario
-    const monthlyAmount = remaining / Math.max(1, monthsToDeadline);
-    scenarios.push({
-      period: 'monthly',
-      amount: Math.ceil(monthlyAmount * 100) / 100,
-      projectedSavings: remaining,
-      timeToGoal: `${monthsToDeadline} months`,
-    });
-
-    // Yearly scenario (if applicable)
     const yearsToDeadline = monthsToDeadline / 12;
     if (yearsToDeadline >= 1) {
-      const yearlyAmount = remaining / yearsToDeadline;
-      scenarios.push({
-        period: 'yearly',
-        amount: Math.ceil(yearlyAmount * 100) / 100,
-        projectedSavings: remaining,
-        timeToGoal: `${Math.ceil(yearsToDeadline)} years`,
-      });
+      scenarios.push({ period: 'yearly', amount: Math.ceil(remaining / yearsToDeadline), projectedSavings: remaining, timeToGoal: `${Math.ceil(yearsToDeadline)} years` });
     }
-
     return scenarios;
   }, []);
 
@@ -241,14 +168,5 @@ export function useGoals() {
     return totalTarget > 0 ? (totalCurrent / totalTarget) * 100 : 0;
   }, [goals]);
 
-  return {
-    goals,
-    addGoal,
-    deleteGoal,
-    addToGoal,
-    calculateScenarios,
-    totalProgress,
-    isLoading,
-    error,
-  };
+  return { goals, addGoal, deleteGoal, addToGoal, calculateScenarios, totalProgress, isLoading, error, refetch: fetchGoals };
 }

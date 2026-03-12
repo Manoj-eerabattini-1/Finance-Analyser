@@ -1,21 +1,14 @@
 import { Router } from "express";
-import {
-  createGoal,
-  getGoals,
-  getGoal,
-  deleteGoal,
-} from "../controllers/goalController.js";
+import { createGoal, getGoals, getGoal, updateGoal, deleteGoal } from "../controllers/goalController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
-import { validateRequest } from "../middleware/validateRequest.js";
-import { createGoalSchema } from "../validators/goalValidator.js";
 
 const router = Router();
-
 router.use(authMiddleware);
 
-router.post("/", validateRequest(createGoalSchema), createGoal);
+router.post("/", createGoal);
 router.get("/", getGoals);
 router.get("/:id", getGoal);
+router.put("/:id", updateGoal);   // NEW — was missing
 router.delete("/:id", deleteGoal);
 
 export default router;
