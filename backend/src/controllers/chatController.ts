@@ -3,6 +3,7 @@ import axios from "axios";
 import Transaction from "../models/Transaction.js";
 import Goal from "../models/Goal.js";
 import User from "../models/User.js";
+import Chat from "../models/Chat.js";
 import { sendResponse, ApiError } from "../utils/apiResponse.js";
 import { CurrencyType, formatCurrency } from "../utils/currencyFormatter.js";
 
@@ -111,6 +112,22 @@ ACTION:{"type":"update_goal","goalTitle":"string","addAmount":number}
 IMPORTANT: Only include ONE action block per response. Only include it when you are genuinely performing an action — NOT for advice, questions, or analysis.`;
 }
 
+export const getChatHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const chats = await Chat.find({ userId: req.userId }).sort({ createdAt: 1 });
+    // Map to frontend expected format
+    const formattedChats = chats.map(c => ({ 
+      id: c._id.toString(),
+      role: c.role, 
+      content: c.content,
+      timestamp: c.createdAt 
+    }));
+    sendResponse(res, 200, true, "Chat history retrieved", formattedChats);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const chat = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { message, conversationHistory = [] } = req.body;
@@ -134,8 +151,11 @@ export const chat = async (req: Request, res: Response, next: NextFunction): Pro
       parts: [{ text: msg.content }],
     }));
 
-    // Add current message
+    // Add current message and save to DB
     contents.push({ role: "user", parts: [{ text: message }] });
+
+    const userChat = new Chat({ userId: req.userId, role: "user", content: message });
+    await userChat.save();
 
     const geminiResponse = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -162,6 +182,10 @@ export const chat = async (req: Request, res: Response, next: NextFunction): Pro
         console.warn("Failed to parse LLM action JSON:", actionMatch[1]);
       }
     }
+
+    // Save assistant reply to DB
+    const assistantChat = new Chat({ userId: req.userId, role: "assistant", content: cleanReply });
+    await assistantChat.save();
 
     // Execute action on MongoDB
     let actionResult: any = null;

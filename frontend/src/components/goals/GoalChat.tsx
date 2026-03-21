@@ -87,14 +87,7 @@ function MessageContent({ content }: { content: string }) {
 }
 
 export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '0',
-      role: 'assistant',
-      content: "Hi! I'm your AI financial assistant 👋\n\nI have access to your real income, expenses, and goals — so my advice is personalised to your actual situation.\n\nI can help you:\n• **Set financial goals** — just describe what you want to achieve\n• **Log transactions** — tell me about income or spending\n• **Check if goals are realistic** — I'll do the math with your real numbers\n• **Give financial advice** — based on your actual spending patterns\n\nWhat would you like to do?",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -103,6 +96,41 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch('http://localhost:5000/api/chat', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data && data.data.length > 0) {
+            setMessages(data.data.map((msg: any) => ({
+              ...msg,
+              timestamp: new Date(msg.timestamp)
+            })));
+          } else {
+            // Default welcome message if no history
+            setMessages([{
+              id: '0',
+              role: 'assistant',
+              content: "Hi! I'm your AI financial assistant 👋\n\nI have access to your real income, expenses, and goals — so my advice is personalised to your actual situation.\n\nI can help you:\n• **Set financial goals** — just describe what you want to achieve\n• **Log transactions** — tell me about income or spending\n• **Check if goals are realistic** — I'll do the math with your real numbers\n• **Give financial advice** — based on your actual spending patterns\n\nWhat would you like to do?",
+              timestamp: new Date(),
+            }]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch chat history:", err);
+      }
+    };
+    
+    fetchHistory();
+  }, []);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return;
