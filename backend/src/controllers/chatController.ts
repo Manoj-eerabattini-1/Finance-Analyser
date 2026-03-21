@@ -138,9 +138,9 @@ export const chat = async (req: Request, res: Response, next: NextFunction): Pro
     contents.push({ role: "user", parts: [{ text: message }] });
 
     const geminiResponse = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
-        system_instruction: { parts: [{ text: systemPrompt }] },
+        systemInstruction: { parts: [{ text: systemPrompt }] },
         contents,
         generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
       }
