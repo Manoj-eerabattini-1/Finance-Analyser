@@ -15,8 +15,24 @@ export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 1 });
+  const [summaryData, setSummaryData] = useState<FinancialSummary | null>(null);
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchSummary = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/transactions/summary`, {
+        headers: getAuthHeaders(),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSummaryData(data.data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch summary", err);
+    }
+  }, []);
+
+  const fetchTransactions = useCallback(async (pageNum = 1, limitNum = 10) => {
     try {
       setIsLoading(true);
       setError(null);
@@ -26,17 +42,15 @@ export function useTransactions() {
         return;
       }
 
-      // Fetch all transactions (increase limit so dashboard shows everything)
-      const response = await fetch(`${API_BASE_URL}/transactions?limit=100`, {
+      const response = await fetch(`${API_BASE_URL}/transactions?page=${pageNum}&limit=${limitNum}`, {
         headers: getAuthHeaders(),
       });
 
       if (!response.ok) throw new Error('Failed to fetch transactions');
 
       const data = await response.json();
-
-      // Backend returns: { success, data: { transactions: [], pagination: {} } }
       const raw = data.data?.transactions ?? [];
+      const pagin = data.data?.pagination;
 
       const formatted: Transaction[] = raw.map((t: any) => ({
         id: t._id || t.id,
@@ -44,7 +58,6 @@ export function useTransactions() {
         amount: t.amount,
         category: t.category,
         description: t.description || '',
-        // Normalize date to YYYY-MM-DD always
         date: t.date
           ? new Date(t.date).toISOString().split('T')[0]
           : new Date().toISOString().split('T')[0],
@@ -52,6 +65,7 @@ export function useTransactions() {
       }));
 
       setTransactions(formatted);
+      if (pagin) setPagination(pagin);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch transactions';
       console.error(msg);
@@ -62,8 +76,9 @@ export function useTransactions() {
   }, []);
 
   useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+    fetchTransactions(1, 10);
+    fetchSummary();
+  }, [fetchTransactions, fetchSummary]);
 
   const addTransaction = useCallback(
     async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
@@ -78,7 +93,7 @@ export function useTransactions() {
             category: transaction.category,
             description: transaction.description || '',
             date: transaction.date
-              ? new Date(transaction.date).toISOString()  // Convert to full ISO for backend
+              ? new Date(transaction.date).toISOString()
               : new Date().toISOString(),
           }),
         });
@@ -88,112 +103,79 @@ export function useTransactions() {
           throw new Error(errData.message || 'Failed to add transaction');
         }
 
-        const data = await response.json();
-        const saved = data.data;
-
-        // Optimistic update — add to top of list immediately
-        const newTransaction: Transaction = {
-          id: saved._id || saved.id,
-          type: saved.type,
-          amount: saved.amount,
-          category: saved.category,
-          description: saved.description || '',
-          date: new Date(saved.date).toISOString().split('T')[0],
-          createdAt: saved.createdAt || new Date().toISOString(),
-        };
-
-        setTransactions((prev) => [newTransaction, ...prev]);
+        await fetchTransactions(pagination.page, pagination.limit);
+        await fetchSummary();
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to add transaction';
         console.error(msg);
         setError(msg);
-        throw err; // Re-throw so TransactionForm knows it failed
+        throw err;
       }
     },
-    []
+    [fetchTransactions, fetchSummary, pagination.page, pagination.limit]
+  );
+
+  const addMultipleTransactions = useCallback(
+    async (txns: Omit<Transaction, 'id' | 'createdAt'>[]) => {
+      try {
+        setError(null);
+        const response = await fetch(`${API_BASE_URL}/transactions/batch`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ transactions: txns }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.message || 'Failed to add transactions');
+        }
+
+        await fetchTransactions(pagination.page, pagination.limit);
+        await fetchSummary();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to add transactions';
+        console.error(msg);
+        setError(msg);
+        throw err;
+      }
+    },
+    [fetchTransactions, fetchSummary, pagination.page, pagination.limit]
   );
 
   const deleteTransaction = useCallback(async (id: string) => {
     try {
       setError(null);
-
-      // Optimistic remove
-      setTransactions((prev) => prev.filter((t) => t.id !== id));
-
       const response = await fetch(`${API_BASE_URL}/transactions/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
-        // Rollback by re-fetching if delete failed
-        await fetchTransactions();
         throw new Error('Failed to delete transaction');
       }
+      await fetchTransactions(pagination.page, pagination.limit);
+      await fetchSummary();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to delete transaction';
       console.error(msg);
       setError(msg);
     }
-  }, [fetchTransactions]);
-
-  const summary = useMemo((): FinancialSummary => {
-    const totalIncome = transactions
-      .filter((t) => t.type === 'income')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    const totalExpenses = transactions
-      .filter((t) => t.type === 'expense')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    const netBalance = totalIncome - totalExpenses;
-    const savingsRate =
-      totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome) * 100 : 0;
-
-    // Top expense categories
-    const categoryTotals = transactions
-      .filter((t) => t.type === 'expense')
-      .reduce((acc, t) => {
-        acc[t.category] = (acc[t.category] || 0) + t.amount;
-        return acc;
-      }, {} as Record<string, number>);
-
-    const topExpenseCategories = Object.entries(categoryTotals)
-      .map(([category, amount]) => ({ category, amount }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 5);
-
-    // Monthly trend — last 6 months
-    const now = new Date();
-    const monthlyTrend = Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      // Use YYYY-MM format to match normalized transaction dates
-      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const monthName = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-
-      const monthTxns = transactions.filter((t) => t.date.startsWith(monthStr));
-
-      return {
-        month: monthName,
-        income: monthTxns
-          .filter((t) => t.type === 'income')
-          .reduce((sum, t) => sum + t.amount, 0),
-        expenses: monthTxns
-          .filter((t) => t.type === 'expense')
-          .reduce((sum, t) => sum + t.amount, 0),
-      };
-    }).reverse();
-
-    return { totalIncome, totalExpenses, netBalance, savingsRate, topExpenseCategories, monthlyTrend };
-  }, [transactions]);
+  }, [fetchTransactions, fetchSummary, pagination.page, pagination.limit]);
 
   return {
     transactions,
     addTransaction,
+    addMultipleTransactions,
     deleteTransaction,
-    summary,
+    summary: summaryData || { 
+      totalIncome: 0, totalExpenses: 0, netBalance: 0, 
+      avgMonthlyIncome: 0, avgMonthlyExpenses: 0, avgMonthlySavings: 0,
+      savingsRate: 0, topExpenseCategories: [], monthlyTrend: [] 
+    },
+    pagination,
     isLoading,
     error,
-    refetch: fetchTransactions,
+    refetch: () => { fetchTransactions(pagination.page, pagination.limit); fetchSummary(); },
+    setPage: (page: number) => fetchTransactions(page, pagination.limit),
   };
 }

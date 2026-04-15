@@ -8,7 +8,18 @@ import { useTransactions } from '@/hooks/useTransactions';
 import { useToast } from '@/hooks/use-toast';
 
 export function DashboardPage() {
-  const { transactions, addTransaction, deleteTransaction, summary, isLoading, error } = useTransactions();
+  const { 
+    transactions, 
+    addTransaction, 
+    addMultipleTransactions, 
+    deleteTransaction, 
+    summary, 
+    pagination,
+    setPage,
+    isLoading, 
+    error, 
+    refetch 
+  } = useTransactions();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -17,12 +28,16 @@ export function DashboardPage() {
     }
   }, [error]);
 
-  const handleAddTransaction = async (transaction: Parameters<typeof addTransaction>[0]) => {
+  const handleAddTransactions = async (txns: Parameters<typeof addMultipleTransactions>[0]) => {
     try {
-      await addTransaction(transaction);
-      toast({ title: 'Success ✓', description: 'Transaction added successfully' });
+      if (txns.length === 1) {
+        await addTransaction(txns[0]);
+      } else {
+        await addMultipleTransactions(txns);
+      }
+      toast({ title: 'Success ✓', description: `${txns.length} transaction(s) added successfully` });
     } catch {
-      toast({ title: 'Error', description: 'Failed to add transaction', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to add transaction(s)', variant: 'destructive' });
     }
   };
 
@@ -35,9 +50,10 @@ export function DashboardPage() {
         </div>
 
         <StatsCards
-          totalIncome={summary.totalIncome}
-          totalExpenses={summary.totalExpenses}
-          netBalance={summary.netBalance}
+          currentBalance={summary.netBalance}
+          avgMonthlyIncome={summary.avgMonthlyIncome}
+          avgMonthlyExpenses={summary.avgMonthlyExpenses}
+          avgMonthlySavings={summary.avgMonthlySavings}
           savingsRate={summary.savingsRate}
         />
 
@@ -50,13 +66,21 @@ export function DashboardPage() {
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-1">
-            <TransactionForm onSubmit={handleAddTransaction} />
+            <TransactionForm 
+              onSubmit={handleAddTransactions} 
+              onExtractSuccess={() => {
+                refetch();
+                toast({ title: 'Success ✓', description: 'Extracted and added transactions from file' });
+              }}
+            />
           </div>
           <div className="lg:col-span-2">
             <TransactionList
               transactions={transactions}
               onDelete={deleteTransaction}
               isLoading={isLoading}
+              pagination={pagination}
+              onPageChange={setPage}
             />
           </div>
         </div>

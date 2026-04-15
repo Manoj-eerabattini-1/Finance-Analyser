@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { sendResponse, ApiError } from "../utils/apiResponse.js";
+import axios from "axios";
 import {
   getCurrentMonthStats,
   getSpendingByCategory,
@@ -9,6 +10,80 @@ import {
 } from "../utils/financialCalculator.js";
 import Goal from "../models/Goal.js";
 import Transaction from "../models/Transaction.js";
+import Report from "../models/Report.js";
+
+/**
+ * Save a generated report
+ * POST /api/reports
+ */
+export const saveReport = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { title, period, totalIncome, totalExpenses, netSavings, goalProgress, scenarios, insights } = req.body;
+
+    const report = new Report({
+      userId: req.userId,
+      title,
+      period,
+      totalIncome,
+      totalExpenses,
+      netSavings,
+      goalProgress,
+      scenarios,
+      insights,
+    });
+
+    await report.save();
+
+    sendResponse(res, 201, true, "Report saved successfully", report);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all saved reports for a user
+ * GET /api/reports
+ */
+export const getSavedReports = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const reports = await Report.find({ userId: req.userId }).sort({ createdAt: -1 });
+    sendResponse(res, 200, true, "Reports retrieved successfully", reports);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Delete a saved report
+ * DELETE /api/reports/:id
+ */
+export const deleteSavedReport = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const report = await Report.findOne({ _id: id, userId: req.userId });
+
+    if (!report) {
+      throw new ApiError(404, "Report not found");
+    }
+
+    await Report.deleteOne({ _id: id });
+    sendResponse(res, 200, true, "Report deleted successfully");
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * Get monthly financial report (income, expenses, savings)
@@ -308,6 +383,89 @@ export const getFinancialSummary = async (
         amount: item.total,
       })),
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const generateReportInsights = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.userId) {
+      throw new ApiError(401, "User authentication required");
+    }
+
+    const monthStats = await getCurrentMonthStats(req.userId);
+    const avgMonthlyIncome = await calculateAverageMonthlyIncome(req.userId, 3);
+    const avgMonthlyExpenses = await calculateAverageMonthlyExpenses(req.userId, 3);
+    
+    // Top Expense Categories
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    const topExpenseCategories = await Transaction.aggregate([
+      { $match: { userId: req.userId, type: "expense", date: { $gte: startOfMonth, $lte: endOfMonth } } },
+      { $group: { _id: "$category", total: { $sum: "$amount" } } },
+      { $sort: { total: -1 } },
+      { $limit: 3 }
+    ]);
+
+    const categoriesStr = topExpenseCategories.map(c => `${c._id}: ${c.total}`).join(", ") || "None";
+
+    const dataBlock = `
+    Current Month Income: ${monthStats.income}
+    Current Month Expenses: ${monthStats.expenses}
+    Current Month Savings Rate: ${monthStats.savingsRate}%
+    3-Month Avg Income: ${avgMonthlyIncome}
+    3-Month Avg Expenses: ${avgMonthlyExpenses}
+    Top Categories This Month: ${categoriesStr}
+    `;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new ApiError(500, "AI service not configured");
+    }
+
+    const systemPrompt = `You are an expert financial advisor. Based on the following financial data, generate exactly 3-4 short, crisp, highly personalized insights/suggestions for the user.
+    Do not use markdown formatting like bold text or asterisks! Just provide a JSON array of strings, where each string is a single insight.
+    Example: ["Your savings rate dropped this month.", "Consider cutting back on dining out.", "Great job keeping income steady!"]
+    
+    Data:
+    ${dataBlock}
+    `;
+
+    const contents = [{ role: "user", parts: [{ text: "Please generate my report insights." }] }];
+
+    const geminiResponse = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+        generationConfig: { temperature: 0.5, maxOutputTokens: 512 },
+      }
+    ).catch(err => {
+      console.error("Gemini API Error (Insights):", err.response?.data || err.message);
+      if (err.response?.status === 404) {
+        throw new ApiError(500, "Gemini Model Not Found (404). Please check the model name.");
+      }
+      throw err;
+    });
+
+    let rawReply: string = geminiResponse.data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+    rawReply = rawReply.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+
+    let insights: string[] = [];
+    try {
+      insights = JSON.parse(rawReply);
+    } catch {
+      insights = ["Unable to generate dynamic insights at this time."];
+    }
+
+    sendResponse(res, 200, true, "Insights generated successfully", { insights });
   } catch (error) {
     next(error);
   }

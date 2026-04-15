@@ -10,6 +10,7 @@ const OLD_MOCK_KEYS = [
   'finance-planner-users',         // Old mock users
   'finance-planner-auth',          // Old auth state
   'finance-planner-user',          // Old current user
+  'finance-planner-reports',       // Old shared reports
 ];
 
 export function cleanupOldMockData(): void {

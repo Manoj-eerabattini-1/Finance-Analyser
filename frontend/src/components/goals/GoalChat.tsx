@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCurrency } from '@/context/CurrencyContext';
-import { Bot, User, Send, Loader2, Sparkles, TrendingUp, Target, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { Bot, User, Send, Loader2, Sparkles, TrendingUp, Target, ArrowUpCircle, ArrowDownCircle, Paperclip, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -11,13 +11,14 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   action?: {
-    type: 'goal_created' | 'transaction_created' | 'goal_updated';
+    type: 'goal_created' | 'transaction_created' | 'goal_updated' | 'transactions_created';
     goalTitle?: string;
     targetAmount?: number;
     transactionType?: 'income' | 'expense';
     amount?: number;
     category?: string;
     newSavings?: number;
+    count?: number;
   };
   timestamp: Date;
 }
@@ -69,6 +70,15 @@ function ActionBadge({ action }: { action: NonNullable<Message['action']> }) {
     );
   }
 
+  if (action.type === 'transactions_created') {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-xs bg-green-50 border border-green-200 text-green-700 rounded-lg px-3 py-2">
+        <ArrowUpCircle className="h-3 w-3 shrink-0" />
+        <span>✓ {action.count} transactions logged from your attachment</span>
+      </div>
+    );
+  }
+
   return null;
 }
 
@@ -90,8 +100,10 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -133,18 +145,40 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
   }, []);
 
   const sendMessage = async (text: string) => {
-    if (!text.trim() || isLoading) return;
+    if ((!text.trim() && !attachedFile) || isLoading) return;
+
+    const messageText = text.trim() || 'Uploaded a file';
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: text.trim(),
+      content: messageText,
       timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+
+    let filePayload = undefined;
+    if (attachedFile) {
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(attachedFile);
+      });
+      
+      filePayload = {
+        data: base64Data,
+        mimeType: attachedFile.type,
+        name: attachedFile.name
+      };
+    }
+    setAttachedFile(null);
 
     try {
       const token = localStorage.getItem('token');
@@ -161,7 +195,7 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: text.trim(), conversationHistory: history }),
+        body: JSON.stringify({ message: messageText, conversationHistory: history, attachedFile: filePayload }),
       });
 
       if (!response.ok) {
@@ -186,7 +220,7 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
       if (action?.type === 'goal_created' || action?.type === 'goal_updated') {
         onGoalCreated();
       }
-      if (action?.type === 'transaction_created') {
+      if (action?.type === 'transaction_created' || action?.type === 'transactions_created') {
         onTransactionCreated();
       }
     } catch (err) {
@@ -221,7 +255,7 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
           </div>
           AI Financial Assistant
           <span className="ml-auto text-xs font-normal text-muted-foreground bg-secondary px-2 py-1 rounded-full">
-            Gemini 1.5 Flash
+            Gemini 2.5 Flash
           </span>
         </CardTitle>
       </CardHeader>
@@ -295,7 +329,26 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
 
       {/* Input */}
       <div className="p-4 border-t shrink-0">
+        {attachedFile && (
+          <div className="mb-2 flex items-center gap-2 text-xs bg-secondary/50 p-2 rounded-md w-max">
+            <Paperclip className="h-3 w-3" />
+            <span className="truncate max-w-[200px]">{attachedFile.name}</span>
+            <button type="button" onClick={() => setAttachedFile(null)} className="hover:text-red-500">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="flex gap-2">
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={(e) => setAttachedFile(e.target.files?.[0] || null)} 
+            className="hidden" 
+            accept="image/*,.pdf,.csv"
+          />
+          <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="shrink-0">
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <Input
             ref={inputRef}
             value={input}
@@ -304,7 +357,7 @@ export function GoalChat({ onGoalCreated, onTransactionCreated }: GoalChatProps)
             disabled={isLoading}
             className="flex-1"
           />
-          <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
+          <Button type="submit" size="icon" disabled={isLoading || (!input.trim() && !attachedFile)}>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </form>

@@ -73,15 +73,20 @@ ${goalsText}
 
 ## REALISM CHECK RULES (apply these every time):
 1. Any goal requiring monthly savings > 50% of their average monthly savings capacity is AGGRESSIVE — flag it
-2. Any goal requiring monthly savings > 80% of savings capacity is UNREALISTIC — push back and suggest extending the timeline or reducing target
+2. Any goal requiring monthly savings > 80% of savings capacity is UNREALISTIC. IMPORTANT: Do NOT output the create_goal ACTION block if it is unrealistic. Instead, push back and suggest extending the timeline or reducing target.
 3. If savings capacity (income - expenses) is negative or zero, tell them honestly and focus on expense reduction first
 4. When suggesting savings amounts, always state what % of their income/savings it represents
 5. Always mention the tradeoff: "This means ${currencySymbol}X/month which is Y% of your monthly savings"
 
+## REQUIRED INFORMATION RULES:
+1. When performing ANY action that changes financial data (logging transaction, creating goal), you MUST NOT guess or assume missing information.
+2. For logging transactions, you MUST explicitly know the DATE. If the user didn't mention a date (e.g., "I bought coffee for $5"), DO NOT issue an action. Instead, ask them: "When did you make this transaction?"
+3. Only output the ACTION block when all required pieces of information (amount, date, category) are provided by the user.
+
 ## WHAT YOU CAN DO:
 1. Create financial goals (extract from natural language and save to database)
-2. Log income transactions (when user mentions receiving money)
-3. Log expense transactions (when user mentions spending money)
+2. Log income transactions (when user gives amount, date)
+3. Log expense transactions (when user gives amount, date)
 4. Add progress/funds to an existing goal
 5. Give personalized financial advice based on REAL data
 6. Run "what if" scenarios: "What if I save X/month?" or "How long to reach Y?"
@@ -101,13 +106,16 @@ For creating a goal:
 ACTION:{"type":"create_goal","goalTitle":"string","targetAmount":number,"deadlineMonths":number}
 
 For logging income:
-ACTION:{"type":"add_transaction","transactionType":"income","amount":number,"category":"string","description":"string"}
+ACTION:{"type":"add_transaction","transactionType":"income","amount":number,"category":"string","description":"string","date":"YYYY-MM-DD"}
 
 For logging an expense:
-ACTION:{"type":"add_transaction","transactionType":"expense","amount":number,"category":"string","description":"string"}
+ACTION:{"type":"add_transaction","transactionType":"expense","amount":number,"category":"string","description":"string","date":"YYYY-MM-DD"}
 
 For adding funds to an existing goal (use exact goal title from the list above):
 ACTION:{"type":"update_goal","goalTitle":"string","addAmount":number}
+
+For adding multiple transactions at once (e.g. from a receipt or list):
+ACTION:{"type":"add_multiple_transactions","transactions":[{"transactionType":"expense","amount":number,"category":"string","description":"string","date":"YYYY-MM-DD"}]}
 
 IMPORTANT: Only include ONE action block per response. Only include it when you are genuinely performing an action — NOT for advice, questions, or analysis.`;
 }
@@ -130,7 +138,7 @@ export const getChatHistory = async (req: Request, res: Response, next: NextFunc
 
 export const chat = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { message, conversationHistory = [] } = req.body;
+    const { message, conversationHistory = [], attachedFile } = req.body;
 
     if (!message || typeof message !== "string" || message.trim().length === 0) {
       throw new ApiError(400, "Message is required");
@@ -151,8 +159,18 @@ export const chat = async (req: Request, res: Response, next: NextFunction): Pro
       parts: [{ text: msg.content }],
     }));
 
-    // Add current message and save to DB
-    contents.push({ role: "user", parts: [{ text: message }] });
+    // Add current message and attached file (if any)
+    const userMessageParts: any[] = [{ text: message }];
+    if (attachedFile && attachedFile.mimeType && attachedFile.data) {
+      userMessageParts.push({
+        inlineData: {
+          mimeType: attachedFile.mimeType,
+          data: attachedFile.data,
+        },
+      });
+    }
+
+    contents.push({ role: "user", parts: userMessageParts });
 
     const userChat = new Chat({ userId: req.userId, role: "user", content: message });
     await userChat.save();
@@ -164,22 +182,35 @@ export const chat = async (req: Request, res: Response, next: NextFunction): Pro
         contents,
         generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
       }
-    );
+    ).catch(err => {
+      console.error("Gemini API Error Detail (Chat):", err.response?.data || err.message);
+      if (err.response?.status === 404) {
+        throw new ApiError(500, "Gemini Model Not Found (404). Please check the model name.");
+      }
+      if (err.response?.status === 429) {
+        throw new ApiError(500, "Gemini API Quota Exceeded (429). Please try again later.");
+      }
+      throw err;
+    });
 
     const rawReply: string =
       geminiResponse.data.candidates?.[0]?.content?.parts?.[0]?.text ||
       "I'm sorry, I couldn't process that. Please try again.";
 
     // Extract ACTION block from end of reply
-    const actionMatch = rawReply.match(/ACTION:(\{[^}]+\}|\{[\s\S]*?\})/);
     let action: any = null;
-    let cleanReply = rawReply.replace(/ACTION:\{[\s\S]*?\}/, "").trim();
+    let cleanReply = rawReply;
 
-    if (actionMatch) {
+    const actionIndex = rawReply.lastIndexOf("ACTION:");
+    if (actionIndex !== -1) {
+      cleanReply = rawReply.substring(0, actionIndex).trim();
+      let actionJsonStr = rawReply.substring(actionIndex + 7).trim();
+      actionJsonStr = actionJsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
       try {
-        action = JSON.parse(actionMatch[1]);
-      } catch {
-        console.warn("Failed to parse LLM action JSON:", actionMatch[1]);
+        action = JSON.parse(actionJsonStr);
+      } catch (e) {
+        console.warn("Failed to parse LLM action JSON:", actionJsonStr);
       }
     }
 
@@ -216,7 +247,7 @@ export const chat = async (req: Request, res: Response, next: NextFunction): Pro
             amount: action.amount,
             category: action.category || "Other",
             description: action.description || message.substring(0, 100),
-            date: new Date(),
+            date: action.date ? new Date(action.date) : new Date(),
           });
           await transaction.save();
           actionResult = {
@@ -240,6 +271,21 @@ export const chat = async (req: Request, res: Response, next: NextFunction): Pro
               newSavings: goal.currentSavings,
             };
           }
+        } else if (action.type === "add_multiple_transactions" && Array.isArray(action.transactions)) {
+          const transactionsToSave = action.transactions.map((t: any) => ({
+            userId: req.userId,
+            type: t.transactionType,
+            amount: t.amount,
+            category: t.category || "Other",
+            description: t.description || message.substring(0, 100),
+            date: t.date ? new Date(t.date) : new Date(),
+          }));
+          
+          await Transaction.insertMany(transactionsToSave);
+          actionResult = {
+            type: "transactions_created",
+            count: transactionsToSave.length,
+          };
         }
       } catch (actionErr) {
         console.error("Action execution failed:", actionErr);

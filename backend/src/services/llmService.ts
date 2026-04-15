@@ -124,7 +124,10 @@ Return ONLY valid JSON, no markdown.`;
           },
         ],
       }
-    );
+    ).catch(err => {
+      console.error("Gemini API Error (Interpret Goal):", err.response?.data || err.message);
+      throw err;
+    });
 
     const content = response.data.candidates[0].content.parts[0].text;
     const parsed = JSON.parse(content);

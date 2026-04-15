@@ -43,6 +43,9 @@ export interface FinancialSummary {
   totalIncome: number;
   totalExpenses: number;
   netBalance: number;
+  avgMonthlyIncome: number;
+  avgMonthlyExpenses: number;
+  avgMonthlySavings: number;
   savingsRate: number;
   topExpenseCategories: { category: string; amount: number }[];
   monthlyTrend: { month: string; income: number; expenses: number }[];
